@@ -8,7 +8,8 @@ import           Control.Monad            (forever)
 import           Control.Monad.State
 import           Controller
 import           Events
-import           Gui                      (createGui)
+import           Gui                      (DataPoint (..), GuiChannel,
+                                           createGui)
 import           Network                  (PortID (..), connectTo,
                                            withSocketsDo)
 import           System.IO
@@ -19,7 +20,7 @@ run = withSocketsDo $ do
     guiMsgChannel <- Chan.newChan
     talk guiMsgChannel handle `finally` hClose handle
 
-talk :: Chan String -> Handle -> IO ()
+talk :: GuiChannel -> Handle -> IO ()
 talk guiMsgChannel handle = do
     hSetNewlineMode handle universalNewlineMode
     hSetBuffering handle LineBuffering
@@ -37,15 +38,19 @@ talk guiMsgChannel handle = do
                 ":q" -> do hPutStrLn handle "/quit"; return ()
                 _    ->  do hPutStrLn handle line; toServer
 
-fromServerLoop :: Chan String -> Handle -> StateT RoverState IO ()
+fromServerLoop :: GuiChannel -> Handle -> StateT RoverState IO ()
 fromServerLoop guiMsgChannel handle = forever $ do
     line <- lift $ hGetLine handle
     case stringToEvent line of
         Right event -> do
             action <- onEvent event
             state <- get
-            lift (Chan.writeChan guiMsgChannel (show event))
+            lift (eventToUI guiMsgChannel event)
             return ()
         Left e      -> do
             lift (print line)
             lift (print e)
+
+eventToUI :: GuiChannel -> Event -> IO ()
+eventToUI guiMsgChannel (AxlEvent t (X value) _ _) = Chan.writeChan guiMsgChannel (DataPoint t value)
+eventToUI _ _ = return ()
